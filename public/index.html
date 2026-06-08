@@ -488,7 +488,11 @@ async function getRxCUI(name, n) {
 
   setSub(`"${enName}" 성분 코드 조회 중...`);
   try {
-    const r = await fetch(`/api/rxcui?name=${encodeURIComponent(enName)}`, {signal: AbortSignal.timeout(10000)});
+    const params = new URLSearchParams({ name });
+    if (s?.en) params.set('ingredient_en', s.en);
+    if (s?.ko) params.set('ingredient_ko', s.ko);
+    else if (local?.ko) params.set('ingredient_ko', local.ko);
+    const r = await fetch(`/api/rxcui?${params}`, {signal: AbortSignal.timeout(10000)});
     const d = await r.json();
     return { rxcui: d.rxcui || null, label: s?.ko || local?.ko || name };
   } catch {
