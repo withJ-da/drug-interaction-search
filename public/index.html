@@ -488,10 +488,9 @@ async function getRxCUI(name, n) {
 
   setSub(`"${enName}" 성분 코드 조회 중...`);
   try {
-    const r = await fetch(`https://rxnav.nlm.nih.gov/REST/rxcui.json?name=${encodeURIComponent(enName)}&search=1`, {signal: AbortSignal.timeout(7000)});
+    const r = await fetch(`/api/rxcui?name=${encodeURIComponent(enName)}`, {signal: AbortSignal.timeout(10000)});
     const d = await r.json();
-    const rxcui = d?.idGroup?.rxnormId?.[0];
-    return { rxcui: rxcui || null, label: s?.ko || local?.ko || name };
+    return { rxcui: d.rxcui || null, label: s?.ko || local?.ko || name };
   } catch {
     return { rxcui: null, label: name };
   }
@@ -512,9 +511,9 @@ async function doSearch() {
       setLoading(false); return;
     }
     setMsg('상호작용 데이터 조회 중...'); setSub('RxNorm 국제 DB 검색');
-    const r = await fetch(`https://rxnav.nlm.nih.gov/REST/interaction/list.json?rxcuis=${i1.rxcui}+${i2.rxcui}`, {signal: AbortSignal.timeout(8000)});
+    const r = await fetch(`/api/interaction?rxcui1=${i1.rxcui}&rxcui2=${i2.rxcui}`, {signal: AbortSignal.timeout(12000)});
     const data = await r.json();
-    const ixns = data?.fullInteractionTypeGroup?.[0]?.fullInteractionType || [];
+    const ixns = data?.interactions || [];
     setLoading(false);
     showResult(d1, d2, i1, i2, ixns);
   } catch(err) {
