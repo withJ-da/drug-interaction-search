@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>약물 상호작용 검색기</title>
+<meta name="description" content="한국어 약품명으로 두 가지 약의 상호작용을 검색하세요. 식약처 전체 DB 연동.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f5f3ee; --surface: #fff; --surface2: #f0ede6;
+    --border: #e0dbd0; --text: #1a1814; --text2: #6b6558; --text3: #a09a8e;
+    --accent: #2d5a3d; --accent-light: #e8f2eb; --accent2: #8b4513;
+    --danger: #c0392b; --danger-light: #fdf0ee;
+    --warning: #b8620a; --warning-light: #fef5e8;
+    --safe: #1a6b3a; --safe-light: #e8f5ed;
+    --mono: 'DM Mono', monospace;
+    --radius: 12px;
+  }
+  body { font-family: 'Noto Sans KR', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── 헤더 ── */
+  header { background: var(--accent); padding: 2.5rem 1.5rem 2rem; position: relative; overflow: hidden; }
+  header::before {
+    content: '💊'; position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+    font-size: 80px; opacity: 0.12; pointer-events: none;
+  }
+  header h1 { font-size: 24px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+  header p { font-size: 13px; color: rgba(255,255,255,0.65); margin-top: 6px; line-height: 1.6; }
+  .hbadge { display: inline-block; font-size: 10px; font-family: var(--mono); background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.85); padding: 2px 7px; border-radius: 3px; margin-left: 8px; vertical-align: middle; }
+
+  /* ── 메인 레이아웃 ── */
+  .main { padding: 1.5rem 1.25rem; max-width: 680px; margin: 0 auto; }
+
+  /* ── 상태바 ── */
+  .status-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-radius: 10px; margin-bottom: 1.25rem;
+    font-size: 12px; border: 1px solid;
+    transition: all 0.3s;
+  }
+  .status-bar.ready   { background: var(--safe-light);    border-color: #a8d5b5; color: var(--safe); }
+  .status-bar.loading { background: var(--warning-light); border-color: #f0c080; color: var(--warning); }
+  .status-bar.error   { background: var(--danger-light);  border-color: #f0b0a8; color: var(--danger); }
+  .sdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .sdot.ready   { background: var(--safe); }
+  .sdot.loading { background: var(--warning); animation: blink 1s infinite; }
+  .sdot.error   { background: var(--danger); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── 검색 카드 ── */
+  .search-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; margin-bottom: 1rem; }
+  .drug-slot { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .slot-num { width: 28px; height: 28px; border-radius: 50%; color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .slot-num.one { background: var(--accent); }
+  .slot-num.two { background: var(--accent2); }
+  .drug-input-wrap { position: relative; flex: 1; }
+  .drug-input {
+    width: 100%; height: 46px; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 0 42px 0 14px; font-size: 15px; font-family: 'Noto Sans KR', sans-serif;
+    background: var(--surface); color: var(--text); outline: none; transition: border-color 0.2s;
+  }
+  .drug-input:focus { border-color: var(--accent); }
+  .drug-input::placeholder { color: var(--text3); }
+  .clear-btn { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text3); font-size: 20px; line-height: 1; display: none; padding: 0; }
+  .clear-btn:hover { color: var(--text2); }
+
+  /* ── 자동완성 ── */
+  .autocomplete-list {
+    position: absolute; top: calc(100% + 5px); left: 0; right: 0;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.12); z-index: 200; max-height: 280px; overflow-y: auto; display: none;
+  }
+  .ac-item { padding: 11px 14px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.12s; }
+  .ac-item:last-child { border-bottom: none; }
+  .ac-item:hover, .ac-item.active { background: var(--accent-light); }
+  .ac-name { font-size: 14px; font-weight: 500; color: var(--text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .ac-sub { font-size: 12px; color: var(--text2); margin-top: 3px; }
+  .ac-empty { padding: 14px; font-size: 13px; color: var(--text3); text-align: center; }
+  .ac-loading-row { padding: 12px 14px; font-size: 13px; color: var(--text3); display: flex; align-items: center; gap: 8px; }
+  .mini-spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 카테고리 뱃지 ── */
+  .cat-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 500; white-space: nowrap; }
+  .src-tag-mfds { font-size: 10px; padding: 1px 6px; background: var(--accent-light); color: var(--accent); border-radius: 3px; font-weight: 500; }
+  .src-tag-local { font-size: 10px; padding: 1px 6px; background: var(--surface2); color: var(--text3); border-radius: 3px; }
+
+  /* ── 구분선 ── */
+  .between { text-align: center; padding: 2px 0; font-size: 22px; color: var(--text3); }
+
+  /* ── 예시 버튼 ── */
+  .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; align-items: center; }
+  .ex-label { font-size: 11px; color: var(--text3); }
+  .ex-pill { font-size: 12px; padding: 5px 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; cursor: pointer; color: var(--text2); transition: all 0.15s; white-space: nowrap; }
+  .ex-pill:hover { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
+
+  /* ── 검색 버튼 ── */
+  .search-btn {
+    width: 100%; height: 50px; background: var(--accent); color: #fff; border: none;
+    border-radius: 12px; font-size: 16px; font-weight: 700; font-family: 'Noto Sans KR', sans-serif;
+    cursor: pointer; margin-top: 16px; transition: opacity 0.2s, transform 0.1s;
+    display: flex; align-items: center; justify-content: center; gap: 8px; letter-spacing: -0.2px;
+  }
+  .search-btn:hover { opacity: 0.9; }
+  .search-btn:active { transform: scale(0.98); }
+  .search-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* ── 의료 경고 ── */
+  .notice { background: var(--warning-light); border: 1px solid #f0c080; border-radius: 10px; padding: 11px 14px; font-size: 12px; color: var(--warning); line-height: 1.65; margin-bottom: 1.25rem; }
+
+  /* ── 로딩 ── */
+  .loading-wrap { text-align: center; padding: 2.5rem 1rem; display: none; }
+  .spinner-lg { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 14px; }
+  .loading-msg { font-size: 14px; color: var(--text2); }
+  .loading-sub { font-size: 12px; color: var(--text3); margin-top: 5px; }
+
+  /* ── 오류 ── */
+  .error-box { background: var(--danger-light); border: 1px solid #f0b0a8; border-radius: 12px; padding: 14px; font-size: 13px; color: var(--danger); display: none; line-height: 1.65; }
+
+  /* ── 결과 ── */
+  .result-wrap { display: none; }
+  .pair-card { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; }
+  .dtag { flex: 1; text-align: center; padding: 8px 12px; border-radius: 10px; font-size: 13px; font-weight: 700; }
+  .dtag.a { background: var(--accent-light); color: var(--accent); }
+  .dtag.b { background: #fef0e6; color: var(--accent2); }
+  .dtag-sub { font-size: 10px; font-weight: 400; opacity: 0.75; display: block; margin-top: 3px; word-break: keep-all; }
+  .plus { font-size: 24px; color: var(--text3); font-weight: 300; }
+
+  .ixn-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+  .ixn-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .sev-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .sev-dot.high { background: var(--danger); }
+  .sev-dot.moderate { background: var(--warning); }
+  .sev-dot.low { background: #5a9e6f; }
+  .sev-label { font-size: 12px; font-weight: 700; font-family: var(--mono); letter-spacing: 0.04em; }
+  .sev-label.high { color: var(--danger); }
+  .sev-label.moderate { color: var(--warning); }
+  .sev-label.low { color: var(--safe); }
+  .db-tag { font-size: 10px; font-family: var(--mono); padding: 2px 6px; background: var(--surface2); border-radius: 4px; color: var(--text3); margin-left: auto; }
+  .ixn-body { padding: 14px 16px; }
+  .ixn-desc { font-size: 14px; color: var(--text); line-height: 1.75; }
+  .ixn-orig { font-size: 11px; color: var(--text3); font-family: var(--mono); line-height: 1.5; margin-top: 6px; }
+
+  .safe-card { background: var(--safe-light); border: 1px solid #a8d5b5; border-radius: 14px; padding: 20px; text-align: center; }
+  .safe-icon { font-size: 32px; margin-bottom: 8px; }
+  .safe-title { font-size: 16px; font-weight: 700; color: var(--safe); }
+  .safe-body { font-size: 13px; color: var(--text2); margin-top: 6px; line-height: 1.7; }
+
+  /* ── 푸터 ── */
+  footer { margin-top: 2rem; padding: 16px 14px; background: var(--surface2); border-radius: 12px; font-size: 11px; color: var(--text3); line-height: 1.8; }
+  footer strong { color: var(--text2); }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  /* ── 반응형 ── */
+  @media (max-width: 480px) {
+    header h1 { font-size: 20px; }
+    .search-card { padding: 1.25rem; }
+    .drug-input { font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>약물 상호작용 검색기<span class="hbadge">식약처 전체 DB</span></h1>
+  <p>한국어 상품명 또는 성분명으로 검색하세요<br>식약처 의약품 허가정보 DB 전체 연동</p>
+</header>
+
+<div class="main">
+  <div class="status-bar ready" id="statusBar">
+    <span class="sdot ready" id="sdot"></span>
+    <span id="statusMsg">준비 완료 — 식약처 전체 DB 검색 가능</span>
+  </div>
+
+  <div class="search-card">
+    <div class="drug-slot">
+      <div class="slot-num one">1</div>
+      <div class="drug-input-wrap">
+        <input class="drug-input" id="drug1" type="text" placeholder="첫 번째 약 이름 검색..." autocomplete="off" oninput="onInput(1)" onkeydown="onKey(event,1)">
+        <button class="clear-btn" id="clear1" onclick="clearSlot(1)">×</button>
+        <div class="autocomplete-list" id="list1"></div>
+      </div>
+    </div>
+    <div class="between">⇅</div>
+    <div class="drug-slot" style="margin-bottom:0">
+      <div class="slot-num two">2</div>
+      <div class="drug-input-wrap">
+        <input class="drug-input" id="drug2" type="text" placeholder="두 번째 약 이름 검색..." autocomplete="off" oninput="onInput(2)" onkeydown="onKey(event,2)">
+        <button class="clear-btn" id="clear2" onclick="clearSlot(2)">×</button>
+        <div class="autocomplete-list" id="list2"></div>
+      </div>
+    </div>
+
+    <div class="examples">
+      <span class="ex-label">예시:</span>
+      <span class="ex-pill" onclick="fillEx('타이레놀','이부프로펜')">타이레놀 + 이부프로펜</span>
+      <span class="ex-pill" onclick="fillEx('아스피린','와파린')">아스피린 + 와파린</span>
+      <span class="ex-pill" onclick="fillEx('렉사프로','트라마돌')">렉사프로 + 트라마돌</span>
+      <span class="ex-pill" onclick="fillEx('암로디핀','심바스타틴')">암로디핀 + 심바스타틴</span>
+    </div>
+
+    <button class="search-btn" id="searchBtn" onclick="doSearch()">🔍 상호작용 검색</button>
+  </div>
+
+  <div class="notice">⚠️ <strong>의료 면책 고지</strong> — 이 정보는 참고용입니다. 실제 복약 결정은 반드시 의사 또는 약사와 상담하세요.</div>
+
+  <div class="loading-wrap" id="loadingWrap">
+    <div class="spinner-lg"></div>
+    <div class="loading-msg" id="loadingMsg">검색 중...</div>
+    <div class="loading-sub" id="loadingSub"></div>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="result-wrap" id="resultWrap">
+    <div class="pair-card" id="pairCard"></div>
+    <div id="ixnList"></div>
+  </div>
+
+  <footer>
+    <strong>데이터 출처</strong><br>
+    • 식약처 의약품허가정보 서비스 (getDrugPrdtPrmsnInq07) — 한국어 상품명 전체 검색<br>
+    • 미국 NLM RxNorm API — 성분명 기반 상호작용 판정<br><br>
+    <strong>면책사항</strong> — 본 서비스는 정보 제공 목적으로만 제공됩니다. 의학적 조언을 대체하지 않습니다.
+  </footer>
+</div>
+
+<script>
+// ── 폴백용 로컬 DB (서버 오류시) ────────────────────────────────────────────
+const LOCAL = [
+  {name:'타이레놀',       ko:'아세트아미노펜',   en:'acetaminophen',       rxcui:'161',    cat:'pain'},
+  {name:'게보린',         ko:'아세트아미노펜복합', en:'acetaminophen',      rxcui:'161',    cat:'pain'},
+  {name:'부루펜',         ko:'이부프로펜',        en:'ibuprofen',           rxcui:'5640',   cat:'pain'},
+  {name:'애드빌',         ko:'이부프로펜',        en:'ibuprofen',           rxcui:'5640',   cat:'pain'},
+  {name:'탁센',           ko:'이부프로펜',        en:'ibuprofen',           rxcui:'5640',   cat:'pain'},
+  {name:'아스피린',       ko:'아세틸살리실산',    en:'aspirin',             rxcui:'1191',   cat:'pain'},
+  {name:'아스트릭스',     ko:'아세틸살리실산',    en:'aspirin',             rxcui:'1191',   cat:'pain'},
+  {name:'낙센',           ko:'나프록센',          en:'naproxen',            rxcui:'7258',   cat:'pain'},
+  {name:'트라마돌',       ko:'트라마돌',          en:'tramadol',            rxcui:'41493',  cat:'pain'},
+  {name:'와파린',         ko:'와파린',            en:'warfarin',            rxcui:'11289',  cat:'blood'},
+  {name:'플라빅스',       ko:'클로피도그렐',      en:'clopidogrel',         rxcui:'174742', cat:'blood'},
+  {name:'엘리퀴스',       ko:'아픽사반',          en:'apixaban',            rxcui:'1364435',cat:'blood'},
+  {name:'자렐토',         ko:'리바록사반',        en:'rivaroxaban',         rxcui:'1037045',cat:'blood'},
+  {name:'지르텍',         ko:'세티리진',          en:'cetirizine',          rxcui:'20610',  cat:'allergy'},
+  {name:'클라리틴',       ko:'로라타딘',          en:'loratadine',          rxcui:'17767',  cat:'allergy'},
+  {name:'알레그라',       ko:'펙소페나딘',        en:'fexofenadine',        rxcui:'33301',  cat:'allergy'},
+  {name:'씨잘',           ko:'레보세티리진',      en:'levocetirizine',      rxcui:'274783', cat:'allergy'},
+  {name:'넥시움',         ko:'에스오메프라졸',    en:'esomeprazole',        rxcui:'283742', cat:'stomach'},
+  {name:'오메프라졸',     ko:'오메프라졸',        en:'omeprazole',          rxcui:'7646',   cat:'stomach'},
+  {name:'가스터',         ko:'파모티딘',          en:'famotidine',          rxcui:'4278',   cat:'stomach'},
+  {name:'노바스크',       ko:'암로디핀',          en:'amlodipine',          rxcui:'17767',  cat:'cardio'},
+  {name:'암로디핀',       ko:'암로디핀',          en:'amlodipine',          rxcui:'17767',  cat:'cardio'},
+  {name:'리피토',         ko:'아토르바스타틴',    en:'atorvastatin',        rxcui:'83367',  cat:'cardio'},
+  {name:'크레스토',       ko:'로수바스타틴',      en:'rosuvastatin',        rxcui:'301542', cat:'cardio'},
+  {name:'심바스타틴',     ko:'심바스타틴',        en:'simvastatin',         rxcui:'36567',  cat:'cardio'},
+  {name:'조코',           ko:'심바스타틴',        en:'simvastatin',         rxcui:'36567',  cat:'cardio'},
+  {name:'메트포르민',     ko:'메트포르민',        en:'metformin',           rxcui:'6809',   cat:'diabetes'},
+  {name:'렉사프로',       ko:'에스시탈로프람',    en:'escitalopram',        rxcui:'321988', cat:'psych'},
+  {name:'프로작',         ko:'플루옥세틴',        en:'fluoxetine',          rxcui:'4493',   cat:'psych'},
+  {name:'졸피뎀',         ko:'졸피뎀',            en:'zolpidem',            rxcui:'41493',  cat:'psych'},
+  {name:'아지트로마이신', ko:'아지트로마이신',    en:'azithromycin',        rxcui:'18631',  cat:'antibiotic'},
+  {name:'지스로맥스',     ko:'아지트로마이신',    en:'azithromycin',        rxcui:'18631',  cat:'antibiotic'},
+  {name:'씬지로이드',     ko:'레보티록신',        en:'levothyroxine',       rxcui:'10582',  cat:'thyroid'},
+  {name:'프레드니솔론',   ko:'프레드니솔론',      en:'prednisolone',        rxcui:'8638',   cat:'steroid'},
+  {name:'덱사메타손',     ko:'덱사메타손',        en:'dexamethasone',       rxcui:'3264',   cat:'steroid'},
+  {name:'아세트아미노펜', ko:'아세트아미노펜',    en:'acetaminophen',       rxcui:'161',    cat:'pain'},
+  {name:'이부프로펜',     ko:'이부프로펜',        en:'ibuprofen',           rxcui:'5640',   cat:'pain'},
+];
+
+const CAT = {
+  pain:'진통제', allergy:'알레르기', stomach:'위장약', cardio:'심혈관',
+  diabetes:'당뇨', antibiotic:'항생제', psych:'정신과', steroid:'스테로이드',
+  blood:'항응고', thyroid:'갑상선', other:'기타'
+};
+const CAT_STYLE = {
+  pain:'background:#fef0e6;color:#8b4513', allergy:'background:#e8f2eb;color:#2d5a3d',
+  stomach:'background:#e6f1fb;color:#0c447c', cardio:'background:#faeeda;color:#633806',
+  diabetes:'background:#eeedfe;color:#3c3489', antibiotic:'background:#fcebeb;color:#a32d2d',
+  psych:'background:#f3e5f5;color:#6a1b9a', steroid:'background:#e1f5ee;color:#085041',
+  blood:'background:#fff3e0;color:#e65100', thyroid:'background:#e8f5e9;color:#1b5e20',
+  other:'background:#f5f5f5;color:#424242'
+};
+const SEV = {
+  high:     {label:'주의 필요 (병용 금기)', cls:'high'},
+  moderate: {label:'보통 수준 주의',         cls:'moderate'},
+  low:      {label:'경미한 상호작용',         cls:'low'},
+};
+
+let sel = {1:null, 2:null};
+let acIdx = {1:-1, 2:-1};
+let acTimer = {};
+let apiAvailable = null; // null=미확인, true/false
+
+// ── 서버 API 확인 ────────────────────────────────────────────────────────────
+async function checkServer() {
+  try {
+    const r = await fetch('/api/search?q=타이레놀', {signal: AbortSignal.timeout(4000)});
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    apiAvailable = Array.isArray(d.items);
+    setStatus('ready', apiAvailable
+      ? '식약처 전체 DB 연동 완료 ✓ — 모든 한국 의약품 검색 가능'
+      : '로컬 DB 모드 — 주요 약품 50종 지원');
+  } catch {
+    apiAvailable = false;
+    setStatus('ready', '오프라인 모드 — 내장 약품 DB로 동작 중');
+  }
+}
+
+function setStatus(type, msg) {
+  const bar = document.getElementById('statusBar');
+  const dot = document.getElementById('sdot');
+  bar.className = 'status-bar ' + type;
+  dot.className = 'sdot ' + type;
+  document.getElementById('statusMsg').textContent = msg;
+}
+
+// ── 자동완성 ─────────────────────────────────────────────────────────────────
+function localSearch(q) {
+  const lq = q.toLowerCase();
+  return LOCAL.filter(d => d.name.toLowerCase().includes(lq) || d.ko.toLowerCase().includes(lq) || d.en.toLowerCase().includes(lq)).slice(0, 6);
+}
+
+function onInput(n) {
+  const val = document.getElementById('drug' + n).value;
+  document.getElementById('clear' + n).style.display = val ? 'block' : 'none';
+  sel[n] = null;
+  clearTimeout(acTimer[n]);
+  if (!val) { closeList(n); return; }
+  // 로컬 즉시
+  const local = localSearch(val);
+  showList(n, local, null);
+  // 서버 300ms 디바운스
+  if (apiAvailable !== false) {
+    acTimer[n] = setTimeout(() => fetchServer(n, val), 300);
+  }
+}
+
+function showList(n, localItems, serverItems) {
+  const list = document.getElementById('list' + n);
+  let html = '';
+
+  const items = serverItems || localItems;
+  if (!items.length && serverItems !== null) { closeList(n); return; }
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const catStyle = CAT_STYLE[item.cat] || CAT_STYLE.other;
+    const catLabel = CAT[item.cat] || item.cat || '';
+    const srcTag = serverItems
+      ? '<span class="src-tag-mfds">식약처</span>'
+      : '<span class="src-tag-local">내장</span>';
+    html += `<div class="ac-item" onclick="selectItem(${n},${i})">
+      <div class="ac-name">
+        ${item.name}
+        ${catLabel ? `<span class="cat-tag" style="${catStyle}">${catLabel}</span>` : ''}
+        ${srcTag}
+      </div>
+      <div class="ac-sub">성분: ${item.ko || item.ko_ing || '—'}${item.company ? ' · ' + item.company : ''}</div>
+    </div>`;
+  }
+
+  // 서버 로딩 중이면 하단에 표시
+  if (serverItems === null && apiAvailable !== false) {
+    html += `<div class="ac-loading-row"><div class="mini-spinner"></div>식약처 DB 검색 중...</div>`;
+  }
+
+  list.innerHTML = html;
+  list._items = items;
+  list.style.display = 'block';
+  acIdx[n] = -1;
+}
+
+async function fetchServer(n, query) {
+  if (document.getElementById('drug' + n).value !== query) return;
+  try {
+    const r = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {signal: AbortSignal.timeout(6000)});
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    if (document.getElementById('drug' + n).value !== query) return;
+    if (!d.items?.length) {
+      // 서버 결과 없으면 로컬 유지
+      const local = localSearch(query);
+      showList(n, local, local.length ? local : []);
+      return;
+    }
+    apiAvailable = true;
+    const items = d.items.map(i => ({
+      name: i.name, ko: i.ingredient_ko, en: i.ingredient_en,
+      rxcui: null, cat: guessCategory(i.ingredient_en || i.ingredient_ko),
+      company: i.company, seq: i.seq,
+    }));
+    // 로컬과 병합 (중복 제거)
+    const local = localSearch(query).filter(l => !items.some(m => m.name.includes(l.name.slice(0,3))));
+    showList(n, local, [...items, ...local].slice(0, 12));
+  } catch {
+    // 오류시 로컬 유지
+    if (document.getElementById('drug' + n).value === query) {
+      const local = localSearch(query);
+      showList(n, local, local);
+    }
+  }
+}
+
+function guessCategory(ing) {
+  if (!ing) return 'other';
+  const i = ing.toLowerCase();
+  if (/statin|fibrate/.test(i)) return 'cardio';
+  if (/cillin|mycin|floxacin|cycline|azole/.test(i)) return 'antibiotic';
+  if (/prazole|famotidine|ranitidine/.test(i)) return 'stomach';
+  if (/pam|zolam|zolpidem/.test(i)) return 'psych';
+  if (/pril|sartan|olol|dipine/.test(i)) return 'cardio';
+  if (/metformin|glipizide|glimepiride|insulin/.test(i)) return 'diabetes';
+  if (/prednisolone|dexamethasone|methylpred/.test(i)) return 'steroid';
+  if (/warfarin|apixaban|rivaroxaban/.test(i)) return 'blood';
+  if (/oxetine|citalopram|venlafaxine|bupropion/.test(i)) return 'psych';
+  if (/cetrizine|loratadine|fexofenadine/.test(i)) return 'allergy';
+  if (/thyroxine|levothyroxine/.test(i)) return 'thyroid';
+  if (/acetaminophen|ibuprofen|naproxen|aspirin|tramadol/.test(i)) return 'pain';
+  return 'other';
+}
+
+function selectItem(n, i) {
+  const list = document.getElementById('list' + n);
+  const item = list._items?.[i];
+  if (!item) return;
+  document.getElementById('drug' + n).value = item.name;
+  closeList(n);
+  document.getElementById('clear' + n).style.display = 'block';
+  sel[n] = item;
+}
+
+function onKey(e, n) {
+  const list = document.getElementById('list' + n);
+  const items = list.querySelectorAll('.ac-item');
+  if (!items.length || list.style.display === 'none') return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); acIdx[n] = Math.min(acIdx[n]+1, items.length-1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); acIdx[n] = Math.max(acIdx[n]-1, -1); }
+  else if (e.key === 'Enter' && acIdx[n] >= 0) { e.preventDefault(); selectItem(n, acIdx[n]); return; }
+  else if (e.key === 'Escape') { closeList(n); return; }
+  else return;
+  items.forEach((el, i) => el.classList.toggle('active', i === acIdx[n]));
+}
+
+function closeList(n) { document.getElementById('list' + n).style.display = 'none'; }
+function clearSlot(n) {
+  document.getElementById('drug' + n).value = '';
+  closeList(n);
+  document.getElementById('clear' + n).style.display = 'none';
+  sel[n] = null;
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.drug-input-wrap')) { closeList(1); closeList(2); }
+});
+
+function fillEx(a, b) {
+  for (const [n, v] of [[1,a],[2,b]]) {
+    document.getElementById('drug' + n).value = v;
+    document.getElementById('clear' + n).style.display = 'block';
+    closeList(n);
+    sel[n] = localSearch(v)[0] || null;
+  }
+}
+
+// ── RxCUI 조회 ───────────────────────────────────────────────────────────────
+async function getRxCUI(name, n) {
+  const s = sel[n];
+  if (s?.rxcui) return { rxcui: s.rxcui, label: s.ko };
+
+  // 로컬에서 영문 성분명 찾기
+  const local = localSearch(name)[0];
+  if (local?.rxcui) return { rxcui: local.rxcui, label: local.ko };
+
+  // 서버 API로 성분명 확인 후 RxNorm 조회
+  let enName = s?.en || local?.en || name;
+
+  // 식약처 item_seq 있으면 영문 성분명 추가 조회
+  if (s?.seq && !s?.en) {
+    try {
+      const r = await fetch(`/api/ingredient?seq=${s.seq}`, {signal: AbortSignal.timeout(4000)});
+      const d = await r.json();
+      if (d.ingredient_en) enName = d.ingredient_en;
+    } catch {}
+  }
+
+  setSub(`"${enName}" 성분 코드 조회 중...`);
+  try {
+    const r = await fetch(`https://rxnav.nlm.nih.gov/REST/rxcui.json?name=${encodeURIComponent(enName)}&search=1`, {signal: AbortSignal.timeout(7000)});
+    const d = await r.json();
+    const rxcui = d?.idGroup?.rxnormId?.[0];
+    return { rxcui: rxcui || null, label: s?.ko || local?.ko || name };
+  } catch {
+    return { rxcui: null, label: name };
+  }
+}
+
+// ── 메인 검색 ────────────────────────────────────────────────────────────────
+async function doSearch() {
+  const d1 = document.getElementById('drug1').value.trim();
+  const d2 = document.getElementById('drug2').value.trim();
+  if (!d1 || !d2) { showErr('두 약품 이름을 모두 입력해주세요.'); return; }
+
+  setLoading(true, '약품 정보 조회 중...'); hideResult(); hideErr();
+  try {
+    const [i1, i2] = await Promise.all([getRxCUI(d1,1), getRxCUI(d2,2)]);
+    if (!i1.rxcui || !i2.rxcui) {
+      const miss = !i1.rxcui ? d1 : d2;
+      showErr(`"${miss}"의 성분 코드를 찾지 못했습니다. 자동완성 목록에서 선택하거나 영문 성분명(예: acetaminophen)으로 입력해보세요.`);
+      setLoading(false); return;
+    }
+    setMsg('상호작용 데이터 조회 중...'); setSub('RxNorm 국제 DB 검색');
+    const r = await fetch(`https://rxnav.nlm.nih.gov/REST/interaction/list.json?rxcuis=${i1.rxcui}+${i2.rxcui}`, {signal: AbortSignal.timeout(8000)});
+    const data = await r.json();
+    const ixns = data?.fullInteractionTypeGroup?.[0]?.fullInteractionType || [];
+    setLoading(false);
+    showResult(d1, d2, i1, i2, ixns);
+  } catch(err) {
+    setLoading(false);
+    showErr('검색 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  }
+}
+
+function tran(desc) {
+  const m = {
+    'bleeding':'출혈', 'blood pressure':'혈압', 'sedation':'진정·졸음',
+    'serotonin syndrome':'세로토닌 증후군', 'QT prolongation':'QT 간격 연장',
+    'liver damage':'간 손상', 'liver':'간', 'kidney':'신장', 'toxicity':'독성',
+    'metabolism':'대사', 'may increase':'증가시킬 수 있음',
+    'may decrease':'감소시킬 수 있음', 'may cause':'유발할 수 있음',
+    'risk of':'위험', 'increased risk':'위험 증가', 'decreased effectiveness':'효과 감소',
+    'concomitant use':'병용 시', 'central nervous system':'중추신경계',
+    'gastrointestinal':'위장관', 'hypoglycemia':'저혈당', 'hyperkalemia':'고칼륨혈증',
+    'hypokalemia':'저칼륨혈증', 'bradycardia':'서맥', 'hypotension':'저혈압',
+  };
+  let r = desc;
+  for (const [en, ko] of Object.entries(m)) r = r.replace(new RegExp(en, 'gi'), ko);
+  return r;
+}
+
+function showResult(d1, d2, i1, i2, ixns) {
+  document.getElementById('pairCard').innerHTML = `
+    <div class="dtag a">${d1}<span class="dtag-sub">${i1.label}</span></div>
+    <div class="plus">+</div>
+    <div class="dtag b">${d2}<span class="dtag-sub">${i2.label}</span></div>`;
+
+  const el = document.getElementById('ixnList');
+  if (!ixns.length) {
+    el.innerHTML = `<div class="safe-card">
+      <div class="safe-icon">✅</div>
+      <div class="safe-title">알려진 상호작용 없음</div>
+      <div class="safe-body">RxNorm DB에서 두 약물 간 상호작용을 찾지 못했습니다.<br>모든 상호작용이 DB에 포함된 것은 아니므로 <strong>중요한 복약 결정은 약사·의사와 상담하세요.</strong></div>
+    </div>`;
+  } else {
+    el.innerHTML = ixns.flatMap(it =>
+      (it.interactionPair||[]).map(pair => {
+        const sev = pair.severity?.toLowerCase() || 'moderate';
+        const sv = SEV[sev] || SEV.moderate;
+        const desc = pair.description || '';
+        const tr = tran(desc);
+        return `<div class="ixn-card">
+          <div class="ixn-head">
+            <div class="sev-dot ${sv.cls}"></div>
+            <div class="sev-label ${sv.cls}">${sv.label}</div>
+            <span class="db-tag">RxNorm</span>
+          </div>
+          <div class="ixn-body">
+            <div class="ixn-desc">${tr}</div>
+            ${tr !== desc ? `<div class="ixn-orig">원문: ${desc}</div>` : ''}
+          </div>
+        </div>`;
+      })
+    ).join('');
+  }
+  document.getElementById('resultWrap').style.display = 'block';
+}
+
+function setLoading(on, msg) {
+  document.getElementById('loadingWrap').style.display = on ? 'block' : 'none';
+  document.getElementById('searchBtn').disabled = on;
+  if (msg) setMsg(msg);
+  if (!on) { setMsg(''); setSub(''); }
+}
+function setMsg(t) { document.getElementById('loadingMsg').textContent = t || '검색 중...'; }
+function setSub(t) { document.getElementById('loadingSub').textContent = t || ''; }
+function hideResult() { document.getElementById('resultWrap').style.display = 'none'; }
+function showErr(m) { const e = document.getElementById('errorBox'); e.innerHTML = '⚠️ ' + m; e.style.display = 'block'; }
+function hideErr() { document.getElementById('errorBox').style.display = 'none'; }
+
+// 시작
+setStatus('loading', '서버 연결 확인 중...');
+checkServer();
+</script>
+</body>
+</html>

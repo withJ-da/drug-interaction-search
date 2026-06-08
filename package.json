@@ -1,0 +1,6 @@
+{
+  "name": "drug-interaction-search",
+  "version": "1.0.0",
+  "description": "한국어 약물 상호작용 검색기",
+  "engines": { "node": ">=18" }
+}
