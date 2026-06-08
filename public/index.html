@@ -489,10 +489,11 @@ async function getRxCUI(name, n) {
   setSub(`"${enName}" 성분 코드 조회 중...`);
   try {
     const params = new URLSearchParams({ name });
-    if (s?.en) params.set('ingredient_en', s.en);
-    if (s?.ko) params.set('ingredient_ko', s.ko);
+    if (s?.en)  params.set('ingredient_en', s.en);
+    if (s?.ko)  params.set('ingredient_ko', s.ko);
     else if (local?.ko) params.set('ingredient_ko', local.ko);
-    const r = await fetch(`/api/rxcui?${params}`, {signal: AbortSignal.timeout(10000)});
+    if (s?.seq) params.set('item_seq', s.seq);  // 식약처 품목 코드
+    const r = await fetch(`/api/rxcui?${params}`, {signal: AbortSignal.timeout(15000)});
     const d = await r.json();
     return { rxcui: d.rxcui || null, label: s?.ko || local?.ko || name };
   } catch {
